@@ -23,6 +23,7 @@ const SFX = {
   kill: () => tone(300, 0.2, { type: 'sawtooth', slide: -250 }),
   teleport: () => tone(200, 0.25, { type: 'triangle', slide: 900, vol: 0.09 }),
   crumble: () => tone(110, 0.18, { type: 'sawtooth', slide: -70, vol: 0.05 }),
+  hurt: () => { tone(220, 0.12, { type: 'sawtooth', slide: -120, vol: 0.08 }); tone(160, 0.16, { type: 'square', slide: -80, delay: 0.08 }); },
   die: () => [400, 300, 220, 150].forEach((f, i) => tone(f, 0.14, { type: 'sawtooth', delay: i * 0.09, slide: -60 })),
   win: () => [523, 659, 784, 1047, 1319].forEach((f, i) => tone(f, 0.16, { delay: i * 0.1 })),
 };

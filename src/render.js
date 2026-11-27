@@ -64,6 +64,8 @@ export class Renderer {
       else if (e.type === 'teleport') this.burst(x, y, '#ffffff', 16, 1.6);
       else if (e.type === 'crumble') { this.burst(x, y, '#7b7b7b', 10, 1.2, 30, 0.12); this.shake = 3; }
       else if (e.type === 'crack') this.burst(x, y, '#b2b2b2', 3, 0.5, 12);
+      else if (e.type === 'hurt') { this.burst(x, y, '#c46c71', 14, 2, 28); this.shake = 7; this.flash = 5; }
+      else if (e.type === 'respawn') this.burst(x, y, '#ffffff', 14, 1.4, 26, 0);
       else if (e.type === 'die') { this.burst(x, y, '#706deb', 22, 2.4, 45); this.burst(x, y, '#ffffff', 10, 1.5, 30); this.shake = 10; this.flash = 6; }
       else if (e.type === 'win') this.burst(x, y, '#edf171', 30, 2.2, 50, 0.02);
     }
@@ -140,7 +142,7 @@ export class Renderer {
     }
     // Wizard.
     const p = s.p, px = Math.round(p.x / 16), py = Math.round(p.y / 16);
-    if (!s.dead && !opts.hidePlayer) {
+    if (!s.dead && !opts.hidePlayer && !(s.invuln > 0 && (t >> 2) % 2)) {
       let f = 0;
       if (p.climb) f = 1 + ((p.y >> 7) & 1);
       else if (!p.ground) f = 1;

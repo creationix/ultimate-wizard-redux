@@ -108,8 +108,9 @@ function searchOnce(start, goal, targets, opts) {
       if ((mask & IN.CAST) && !(base.spell && base.charges > 0)) continue;
       const s = cloneState(base);
       let f = 0, done = false;
-      while (f < macro && !s.dead) { step(s, mask); f++; if (goal(s)) { done = true; break; } }
-      if (s.dead) continue;
+      // A proof of winnability should be clean: routes that take a hit are discarded.
+      while (f < macro && !s.dead && s.hp === C.HP) { step(s, mask); f++; if (goal(s)) { done = true; break; } }
+      if (s.dead || s.hp < C.HP) continue;
       const child = { s, parent: node, mask, frames: f, g: node.g + 1 };
       if (done) {
         const path = [];

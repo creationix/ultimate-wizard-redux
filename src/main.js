@@ -127,17 +127,16 @@ function updateHud() {
   setText('hudGems', `◆ ${s.gems}/${L.gemCount}`);
   setText('hudKey', s.hasKey ? '⚷ Key' : '');
   setText('hudSpell', s.spell ? `${SPELLS[s.spell].label}${s.charges > 1 ? ' ×' + s.charges : ''}` : '');
-  const left = Math.max(0, Math.ceil((L.time * 60 - s.tick) / 60));
-  setText('hudTime', `${left}s`);
-  $('hudTime').classList.toggle('low', left <= 15);
+  setText('hudHp', '♥'.repeat(s.hp) + '♡'.repeat(Math.max(0, 3 - s.hp)));
+  setText('hudTime', `${Math.floor(s.tick / 60)}s`);
   $('hudSpell').style.color = s.spell ? { bolt: '#edf171', frost: '#75cec8', feather: '#a9ff9f', ward: '#c46c71' }[s.spell] : '';
 }
-const DEATHS = { fall: 'That fall was too far.', pit: 'Lost to the depths.', spikes: 'Spiked.', flame: 'Burned.', ghoul: 'Caught by a ghoul.', bat: 'Bitten by a bat.', time: 'Out of time.' };
+const DEATHS = { fall: 'That fall was too far.', pit: 'Lost to the depths.', spikes: 'Spiked.', flame: 'Burned.', ghoul: 'Caught by a ghoul.', bat: 'Bitten by a bat.' };
 
 function tick() {
   const s = run.state;
   if (s.dead) {
-    if (++run.deadT === 1) { run.deaths++; banner(`<b>${DEATHS[s.dead] || 'Defeated'}</b>`, 1100); }
+    if (++run.deadT === 1) { run.deaths++; banner(`<b>${DEATHS[s.dead] || 'Defeated'}</b>Out of hearts - starting the chamber again`, 1100); }
     if (run.deadT > 70) { if (run.demo) run.demo = null; restart(); }
     return;
   }
@@ -203,14 +202,13 @@ function openEditor(def) {
   run.demo = null; banner('', 0);
   gameEl.dataset.mode = 'edit';
   editor.active = true;
-  $('edName').value = def.name; $('edTime').value = def.time; $('edTheme').value = def.theme;
+  $('edName').value = def.name; $('edTheme').value = def.theme;
   $('edStatus').textContent = 'Tap the grid to paint. Right-click or the Erase tool removes.';
   go('game');
   editor.open(def);
 }
 $('edBack').addEventListener('click', () => { editor.active = false; go('levels'); });
 $('edName').addEventListener('input', (e) => { editor.def.name = e.target.value || 'Untitled'; store.saveCustom(editor.def); });
-$('edTime').addEventListener('change', (e) => { editor.def.time = Math.min(600, Math.max(10, e.target.value | 0)); e.target.value = editor.def.time; store.saveCustom(editor.def); verified = null; });
 $('edTheme').addEventListener('change', (e) => { editor.def.theme = e.target.value | 0; store.saveCustom(editor.def); editor.rebuild(); });
 $('edClear').addEventListener('click', () => dialog('Clear the level?', '<p>Everything in this chamber will be erased.</p>', [['Clear', () => editor.clear()], ['Cancel']]));
 function checkValid() {

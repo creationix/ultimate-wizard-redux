@@ -57,14 +57,14 @@ test('a running jump clears a three-tile gap but not a six-tile one', () => {
     return s;
   };
   const ok = run(3);
-  assert.equal(ok.dead, null); assert.ok(tx(ok) > 7);
-  assert.equal(run(6).dead, 'pit');
+  assert.equal(ok.hp, C.HP); assert.ok(tx(ok) > 7);
+  assert.ok(run(6).hp < C.HP, 'fell in the pit');
 });
 
 test('coyote time and jump buffering forgive slightly early or late presses', () => {
   const late = hold(world([' @', '####']), 0, 5);
   while (late.p.ground) step(late, IN.R);          // just walked off the edge
-  hold(late, IN.R, C.COYOTE - 2);
+  hold(late, IN.R, C.COYOTE - 3);
   step(late, IN.R | IN.JUMP);
   assert.ok(late.p.vy < 0, 'jump still allowed a few frames after leaving the ledge');
 
@@ -101,15 +101,25 @@ test('ladders: climb up, stand on the top rung, climb back down', () => {
   assert.equal(s.p.climb, false);
 });
 
-test('climbing ignores gravity, and stepping sideways lets go', () => {
-  const s = hold(world(['   H', '   H', '   H', '   H', '   H@', FLOOR]), 0, 5);
-  hold(s, IN.L, 13); hold(s, IN.U, 30);
+test('climbing ignores gravity and a stray sideways press never drops you', () => {
+  const s = hold(world(['   H', '   H', '   H###', '   H', '   H@', FLOOR]), 0, 5);
+  hold(s, IN.L, 13); hold(s, IN.U, 12);
   const y = s.p.y;
   hold(s, 0, 60);
   assert.equal(s.p.y, y, 'hangs on without input');
-  hold(s, IN.R, 40);
-  assert.equal(s.p.climb, false);
-  assert.equal(feet(s), H - 1, 'fell back to the floor');
+  hold(s, IN.R, 40); hold(s, IN.L, 40);
+  assert.equal(s.p.climb, true, 'sideways in mid-air holds on');
+  assert.equal(s.p.y, y);
+  hold(s, IN.U, 200);                    // climb to the top, back down to the side platform's height
+  while (feet(s) < H - 4) step(s, IN.D);
+  hold(s, IN.R, 30);
+  assert.equal(s.p.climb, false, 'steps off where there is a floor');
+  assert.equal(feet(s), H - 4, 'standing on the platform beside the ladder');
+  assert.ok(tx(s) > 4);
+  // At the bottom, sideways walks away normally.
+  const b = hold(world(['   H', '   H', '   H@', FLOOR]), 0, 5);
+  hold(b, IN.L, 13); hold(b, IN.U, 3); hold(b, IN.D, 10); hold(b, IN.L, 20);
+  assert.equal(b.p.climb, false); assert.ok(tx(b) < 3);
 });
 
 test('ropes can be caught in mid-air and hopped off', () => {
@@ -124,7 +134,7 @@ test('ropes can be caught in mid-air and hopped off', () => {
   assert.equal(s.p.climb, false, 'jump hops off');
 });
 
-test('long falls are fatal, short ones are not, and a feather makes any fall safe', () => {
+test('very long falls cost a heart, shorter ones are free, and a feather makes any fall safe', () => {
   const drop = (tiles, feather) => {
     const rows = ['@', '#'];
     for (let i = 0; i < tiles - 1; i++) rows.push('');
@@ -134,29 +144,88 @@ test('long falls are fatal, short ones are not, and a feather makes any fall saf
     hold(s, IN.R, 12); hold(s, 0, 400);
     return s;
   };
-  assert.equal(drop(4).dead, null);
-  assert.equal(drop(5).dead, 'fall');
+  assert.equal(drop(5).hp, C.HP, 'a five-tile drop is fine');
+  const hard = drop(7);
+  assert.equal(hard.hp, C.HP - 1, 'a seven-tile drop costs a heart');
+  assert.equal(hard.dead, null);
   const safe = drop(10, true);
-  assert.equal(safe.dead, null);
+  assert.equal(safe.hp, C.HP);
   assert.equal(safe.p.ground, true);
 });
 
-test('spikes kill on contact but can be jumped', () => {
-  assert.equal(hold(hold(world([' @  ^', FLOOR]), 0, 5), IN.R, 60).dead, 'spikes');
+test('hearts: a hit costs one, grants brief mercy, and the last one is fatal', () => {
+  const s = world([' @ g #', FLOOR]);
+  while (s.hp === C.HP) step(s, 0);
+  hold(s, 0, C.INVULN - 5);
+  assert.equal(s.hp, C.HP - 1, 'one touch, one heart - not one per frame');
+  assert.equal(s.dead, null);
+  const t = world([' @  g #', FLOOR]);
+  let hits = 0, last = t.hp;
+  for (let i = 0; i < 2000 && !t.dead; i++) { step(t, 0); if (t.hp < last) { hits++; last = t.hp; assert.ok(t.dead || t.invuln === C.INVULN); } }
+  assert.equal(hits, C.HP);
+  assert.equal(t.dead, 'ghoul');
+});
+
+test('pits and spikes cost a heart and return you to the last safe ground with your loot', () => {
+  const s = hold(world([' @ $', '#####   ####']), 0, 5);
+  while (s.hp === C.HP) step(s, IN.R);
+  hold(s, IN.R, C.RESPAWN_PAUSE - 2);
+  assert.ok(tx(s) > 3 && tx(s) < 5, 'a held direction does not walk straight back in');
+  hold(s, 0, 30);
+  assert.equal(s.dead, null);
+  assert.equal(s.hp, C.HP - 1);
+  assert.equal(s.gems, 1, 'the gem collected before the fall is kept');
+  assert.equal(feet(s), H - 1); assert.ok(tx(s) > 3 && tx(s) < 5, `back on the ledge it fell from (${tx(s)})`);
+  const k = hold(world([' @  ^', FLOOR]), 0, 5);
+  while (k.hp === C.HP) step(k, IN.R);
+  assert.ok(tx(k) < 4, 'put back before the spikes');
+  hold(k, IN.R, 600);
+  assert.equal(k.dead, 'spikes', 'three mistakes and the chamber restarts');
+});
+
+test('cracked stone is never remembered as safe ground', () => {
+  const s = hold(world(['@', '#~~~', '']), 0, 5);
+  hold(s, IN.R, 30); hold(s, 0, 200);
+  assert.equal(s.hp, C.HP - 1);
+  assert.ok(tx(s) < 1.2, 'respawned on the solid tile, not the collapsed one');
+});
+
+test('ledge assist: just clipping the lip of a ledge still lands you on it', () => {
+  // Sweep take-off points; the assist must rescue jumps that fall slightly short.
+  const landings = () => {
+    let made = 0;
+    for (let start = 0; start < 40; start++) {
+      const s = hold(world(['        ################', ' @      ################', FLOOR]), 0, 5);
+      hold(s, IN.R, 30 + start);
+      hold(s, IN.R | IN.JUMP, 60); hold(s, IN.R, 30);
+      assert.ok(feet(s) === H - 3 || feet(s) === H - 1, `ends standing somewhere sensible (${feet(s)})`);
+      if (feet(s) === H - 3) made++;
+    }
+    return made;
+  };
+  const withAssist = landings(), assist = C.LEDGE_ASSIST;
+  C.LEDGE_ASSIST = 0;
+  let without;
+  try { without = landings(); } finally { C.LEDGE_ASSIST = assist; }
+  assert.ok(withAssist > without, `assist rescues near misses (${withAssist} vs ${without} of 40)`);
+});
+
+test('spikes hurt on contact but can be jumped', () => {
+  assert.equal(hold(hold(world([' @  ^', FLOOR]), 0, 5), IN.R, 30).hp, C.HP - 1);
   const s = hold(world([' @  ^', FLOOR]), 0, 5);
   hold(s, IN.R, 22); hold(s, IN.R | IN.JUMP, 30); hold(s, IN.R, 20);
-  assert.equal(s.dead, null);
+  assert.equal(s.hp, C.HP);
   assert.ok(tx(s) > 5);
 });
 
 test('flame jets only burn while lit, and a ward walks through them', () => {
   const mk = () => hold(world([' @ F', FLOOR]), 0, 1);
   const lit = mk(); hold(lit, IN.R, 60);
-  assert.equal(lit.dead, 'flame');
+  assert.equal(lit.hp, C.HP - 1);
   const unlit = mk(); hold(unlit, 0, C.FLAME_ON); hold(unlit, IN.R, 60);
-  assert.equal(unlit.dead, null, 'crossed during the dark half of the cycle');
+  assert.equal(unlit.hp, C.HP, 'crossed during the dark half of the cycle');
   const warded = mk(); warded.spell = 'ward'; warded.charges = 1; step(warded, IN.CAST); hold(warded, IN.R, 60);
-  assert.equal(warded.dead, null);
+  assert.equal(warded.hp, C.HP);
 });
 
 test('cracked stone holds briefly, then collapses for good', () => {
@@ -182,9 +251,9 @@ test('ghouls patrol their platform without ever leaving it', () => {
   assert.ok(turns >= 4);
 });
 
-test('touching a creature is fatal', () => {
-  assert.equal(hold(world([' @     g', FLOOR]), IN.R, 200).dead, 'ghoul');
-  assert.equal(hold(world([' @     s', FLOOR]), 0, 1500).dead, 'bat');
+test('touching a creature costs a heart', () => {
+  assert.ok(hold(world([' @     g  #', FLOOR]), IN.R, 150).hp < C.HP);
+  assert.ok(hold(world([' @     s', FLOOR]), 0, 1500).hp < C.HP);
 });
 
 test('bats bounce between walls forever', () => {
@@ -215,7 +284,7 @@ test('frost stops creatures and makes them harmless until it wears off', () => {
   const x = s.enemies[0].x;
   hold(s, IN.R, 150);
   assert.equal(s.enemies[0].x, x, 'frozen in place');
-  assert.equal(s.dead, null, 'walked straight through it');
+  assert.equal(s.hp, C.HP, 'walked straight through it');
   hold(s, 0, C.FROST_T);
   assert.notEqual(s.enemies[0].x, x, 'thawed and moving again');
 });
@@ -224,9 +293,9 @@ test('ward protects from creatures for a limited time', () => {
   const s = hold(world([' @  g  #', FLOOR]), 0, 2);
   s.spell = 'ward'; s.charges = 1; step(s, IN.CAST);
   hold(s, 0, C.WARD_T - 5);
-  assert.equal(s.dead, null);
+  assert.equal(s.hp, C.HP);
   hold(s, 0, 400);
-  assert.equal(s.dead, 'ghoul');
+  assert.ok(s.hp < C.HP, 'the ward wore off');
 });
 
 test('portals move the wizard to the matching portal on an Up tap', () => {
@@ -253,11 +322,9 @@ test('the door only opens once the key is held; gems are counted', () => {
   assert.equal(a.tick, tickAtWin, 'the world stops once the level is won');
 });
 
-test('running out of time is fatal', () => {
-  const s = hold(world([' @', FLOOR], { time: 2 }), 0, 119);
-  assert.equal(s.dead, null);
-  step(s, 0);
-  assert.equal(s.dead, 'time');
+test('there is no countdown: waiting is always safe', () => {
+  const s = hold(world([' @', FLOOR], { time: 2 }), 0, 2000);
+  assert.equal(s.dead, null); assert.equal(s.hp, C.HP);
 });
 
 test('simulation is deterministic and clones continue identically', () => {

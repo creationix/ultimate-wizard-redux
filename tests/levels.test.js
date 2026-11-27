@@ -5,7 +5,7 @@
 // re-running `npm run solve` fails here rather than shipping an untested level.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validateLevel, levelHash, replay, parseLevel, decodeInputs, W, H, T } from '../src/sim.js';
+import { validateLevel, levelHash, replay, parseLevel, decodeInputs, W, H, T, C } from '../src/sim.js';
 import { LEVELS } from '../src/levels.js';
 import { SOLUTIONS } from '../src/solutions.js';
 import { solve, distanceMap } from '../src/solver.js';
@@ -33,11 +33,11 @@ for (const [n, def] of LEVELS.entries()) {
       assert.equal(sol.hash, levelHash(def), 'level changed since it was solved - run `npm run solve`');
     });
 
-    await t.test('stored solution wins within the time limit', () => {
+    await t.test('stored solution wins without losing a heart', () => {
       const s = replay(def, sol.win);
       assert.equal(s.dead, null);
       assert.equal(s.won, true);
-      assert.ok(s.tick < def.time * 60 * 0.5, `a clean run (${(s.tick / 60).toFixed(1)}s) leaves plenty of the ${def.time}s limit`);
+      assert.equal(s.hp, C.HP, 'the proof run never takes a hit');
       assert.equal(decodeInputs(sol.win).length, s.tick, 'recording ends exactly at the win');
     });
 
@@ -45,13 +45,14 @@ for (const [n, def] of LEVELS.entries()) {
       const s = replay(def, sol.perfect);
       assert.equal(s.won, true);
       assert.equal(s.gems, parseLevel(def).gemCount);
-      assert.ok(s.tick < def.time * 60 * 0.6, `a perfect run (${(s.tick / 60).toFixed(1)}s) fits the ${def.time}s limit comfortably`);
+      assert.equal(s.hp, C.HP, 'without taking a hit');
     });
 
     await t.test('the solver finds a winning route from scratch', () => {
       const r = solve(def);
       assert.equal(r.ok, true, r.reason);
-      assert.equal(replay(def, r.inputs).won, true);
+      const s = replay(def, r.inputs);
+      assert.equal(s.won, true); assert.equal(s.hp, C.HP);
     });
   });
 }

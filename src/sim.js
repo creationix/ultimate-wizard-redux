@@ -12,8 +12,11 @@ export const C = {
   PW: 160, PH: 224,            // player hit box (10 x 14 px)
   WALK: 20, CLIMB: 14,
   G: 4, JUMP: 68, JUMP_CUT: 24, HOP: 40, MAXFALL: 96, FEATHER_FALL: 12,
-  FALL_LIMIT: 1152,            // 4.5 tiles: longer drops are fatal
-  COYOTE: 5, JUMPBUF: 6,
+  FALL_LIMIT: 1472,            // 5.75 tiles: longer drops cost a heart
+  COYOTE: 8, JUMPBUF: 9,
+  HP: 3, INVULN: 90,           // hearts, and frames of mercy after a hit
+  RESPAWN_PAUSE: 30,           // controls rest briefly after being put back on safe ground
+  LEDGE_ASSIST: 96,            // clip a ledge corner by up to 6 px and you are lifted onto it
   CRUMBLE_T: 24,
   FLAME_PERIOD: 180, FLAME_ON: 90,
   FROST_T: 300, WARD_T: 240, FEATHER_T: 360,
@@ -103,6 +106,8 @@ export function createState(level, { events = true } = {}) {
       vx: 0, vy: 0, face: 1, ground: false, climb: false,
       peakY: level.start.ty * TILE + TILE - C.PH, coyote: 0, jumpBuf: 0, grabCd: 0, jmp: false,
     },
+    hp: C.HP, invuln: 0, stun: 0,
+    safeX: level.start.tx * TILE + (TILE - C.PW) / 2, safeY: level.start.ty * TILE + TILE - C.PH,
     ct: new Uint8Array(level.crumbleCount),   // 0 intact, 1..N counting down, 255 gone
     taken: new Uint8Array(level.items.length),
     hasKey: false, gems: 0, score: 0, kills: 0,
@@ -121,6 +126,7 @@ export function cloneState(s) {
   return {
     level: s.level, tick: s.tick, prevInp: s.prevInp,
     p: { x: p.x, y: p.y, vx: p.vx, vy: p.vy, face: p.face, ground: p.ground, climb: p.climb, peakY: p.peakY, coyote: p.coyote, jumpBuf: p.jumpBuf, grabCd: p.grabCd, jmp: p.jmp },
+    hp: s.hp, invuln: s.invuln, stun: s.stun, safeX: s.safeX, safeY: s.safeY,
     ct: s.ct.length ? s.ct.slice() : s.ct,
     taken: s.taken.slice(),
     hasKey: s.hasKey, gems: s.gems, score: s.score, kills: s.kills,
@@ -135,7 +141,7 @@ export function cloneState(s) {
 /** Exact, full-precision fingerprint of everything that affects future simulation. */
 export function stateKey(s) {
   const p = s.p;
-  return [s.tick, s.prevInp, p.x, p.y, p.vx, p.vy, p.face, +p.ground, +p.climb, p.peakY, p.coyote, p.jumpBuf, p.grabCd, +p.jmp,
+  return [s.tick, s.prevInp, p.x, p.y, p.vx, p.vy, p.face, +p.ground, +p.climb, p.peakY, p.coyote, p.jumpBuf, p.grabCd, +p.jmp, s.hp, s.invuln, s.stun, s.safeX, s.safeY,
     s.ct.join('.'), s.taken.join(''), +s.hasKey, s.gems, s.score, s.spell, s.charges, s.frost, s.ward, s.feather,
     s.enemies.map((e) => `${e.x},${e.y},${e.dir},${+e.alive}`).join(';'),
     s.bolts.map((b) => `${b.x},${b.y},${b.dir}`).join(';'), s.dead, +s.won].join('|');
@@ -164,17 +170,46 @@ const overlap = (ax, ay, aw, ah, bx, by, bw, bh) => ax < bx + bw && bx < ax + aw
 
 function ev(s, type, x, y, extra) { if (s.events) s.events.push({ type, x, y, extra }); }
 function die(s, why) { if (!s.dead) { s.dead = why; ev(s, 'die', s.p.x + C.PW / 2, s.p.y + C.PH / 2, why); } }
+/**
+ * Takes a heart. The last heart is fatal; otherwise the wizard gets a moment of
+ * invulnerability and, for hazards you cannot walk out of (pits, spikes), is put
+ * back on the last safe ground. Everything collected so far is kept.
+ */
+function hurt(s, why, respawn) {
+  if (s.dead || s.won) return;
+  if (s.invuln > 0 && !respawn) return;
+  const p = s.p;
+  if (--s.hp <= 0) { s.hp = 0; return die(s, why); }
+  ev(s, 'hurt', p.x + C.PW / 2, p.y + C.PH / 2, why);
+  s.invuln = C.INVULN;
+  if (respawn) {
+    p.x = s.safeX; p.y = s.safeY; p.vx = p.vy = 0; p.climb = false; p.ground = false; p.jmp = false; p.peakY = p.y;
+    p.coyote = 0; p.jumpBuf = 0; s.stun = C.RESPAWN_PAUSE;
+    ev(s, 'respawn', p.x + C.PW / 2, p.y + C.PH / 2);
+  }
+}
+/** Top of a surface the wizard could stand on in column tx at about feet height, or -1. */
+function footingNear(s, tx, feetY) {
+  const row = (feetY + 96) >> 8, top = row * TILE;
+  if (Math.abs(top - feetY) > 96) return -1;
+  if (!(isSolid(s, tx, row) || isOneWay(s, tx, row))) return -1;
+  return isSolid(s, tx, row - 1) ? -1 : top;
+}
 
 /** Advance the world by exactly one 60 Hz frame with the given input bitmask. */
 export function step(s, inp) {
   if (s.dead || s.won) return s;
   if (s.events) s.events.length = 0;
   s.tick++;
+  // After a respawn the controls rest a moment, so a held direction cannot walk
+  // straight back into whatever just hurt.
+  if (s.stun > 0) { s.stun--; inp = 0; }
   const pressed = inp & ~s.prevInp;
   s.prevInp = inp;
   if (s.frost > 0) s.frost--;
   if (s.ward > 0) s.ward--;
   if (s.feather > 0) s.feather--;
+  if (s.invuln > 0) s.invuln--;
 
   if ((pressed & IN.CAST) && s.spell && s.charges > 0) cast(s);
   stepPlayer(s, inp, pressed);
@@ -185,7 +220,6 @@ export function step(s, inp) {
   }
   stepEnemies(s);
   stepBolts(s);
-  if (!s.won && !s.dead && s.tick >= s.level.time * 60) die(s, 'time');
   return s;
 }
 
@@ -239,8 +273,8 @@ function stepPlayer(s, inp, pressed) {
     if (pressed & IN.JUMP) {                       // hop off
       p.climb = false; p.vy = -C.HOP; p.grabCd = 14; pressed &= ~IN.JUMP;
       ev(s, 'jump', p.x + C.PW / 2, p.y + C.PH);
-    } else if (dir && !(inp & (IN.U | IN.D))) {    // step off sideways
-      p.climb = false; p.grabCd = 8;
+    } else if (dir && !(inp & (IN.U | IN.D)) && stepOff(s, dir, ctx)) {
+      // stepped off onto real footing; a sideways press in mid-air just holds on
     } else {
       if (inp & IN.U) {
         let ny = p.y - C.CLIMB;
@@ -285,7 +319,16 @@ function stepPlayer(s, inp, pressed) {
 
   if (p.vx) {
     let nx = p.x + p.vx;
-    if (rectSolid(s, nx, p.y, C.PW, C.PH)) nx = p.vx > 0 ? ((nx + C.PW - 1) >> 8) * TILE - C.PW : ((nx >> 8) + 1) * TILE;
+    if (rectSolid(s, nx, p.y, C.PW, C.PH)) {
+      // Ledge assist: falling and only just short of a ledge? Lift onto it.
+      let lifted = false;
+      if (!p.ground && p.vy >= 0) {
+        for (let lift = 32; lift <= C.LEDGE_ASSIST; lift += 32) {
+          if (!rectSolid(s, nx, p.y - lift, C.PW, C.PH)) { p.y -= lift; lifted = true; break; }
+        }
+      }
+      if (!lifted) nx = p.vx > 0 ? ((nx + C.PW - 1) >> 8) * TILE - C.PW : ((nx >> 8) + 1) * TILE;
+    }
     p.x = nx;
   }
 
@@ -301,13 +344,20 @@ function stepPlayer(s, inp, pressed) {
         }
       }
     }
-  } else if (p.vy < 0 && rectSolid(s, p.x, ny, C.PW, C.PH)) { ny = ((ny >> 8) + 1) * TILE; p.vy = 0; }
+  } else if (p.vy < 0 && rectSolid(s, p.x, ny, C.PW, C.PH)) {
+    // Corner correction: a head that only clips the edge of a block slides past it.
+    let slid = false;
+    for (const dx of [32, -32, 64, -64]) {
+      if (!rectSolid(s, p.x + dx, ny, C.PW, C.PH) && !rectSolid(s, p.x + dx, p.y, C.PW, C.PH)) { p.x += dx; slid = true; break; }
+    }
+    if (!slid) { ny = ((ny >> 8) + 1) * TILE; p.vy = 0; }
+  }
 
   if (s.feather > 0) p.peakY = ny;
   if (landed) {
     if (!p.ground) {
       const fell = ny - p.peakY;
-      if (fell > C.FALL_LIMIT) die(s, 'fall');
+      if (fell > C.FALL_LIMIT) hurt(s, 'fall', false);
       else if (fell > 96) ev(s, 'land', p.x + C.PW / 2, ny + C.PH);
     }
     p.vy = 0; p.ground = true; p.peakY = ny;
@@ -316,7 +366,23 @@ function stepPlayer(s, inp, pressed) {
     if (ny < p.peakY) p.peakY = ny;
   }
   p.y = ny;
-  if (p.y > H * TILE) die(s, 'pit');
+  if (p.y > H * TILE) return hurt(s, 'pit', true);
+  // Remember the last place it was safe to stand: solid (not cracked) ground.
+  if (p.ground && s.invuln === 0) {
+    const row = (p.y + C.PH) >> 8, c = (p.x + C.PW / 2) >> 8;
+    const t = row < H ? s.level.tiles[row * W + c] : T.EMPTY;
+    if (t === T.STONE || t === T.LEDGE || t === T.LADDER) { s.safeX = p.x; s.safeY = p.y; }
+  }
+}
+
+/** Leaving a ladder or rope sideways only happens when there is a floor to step onto. */
+function stepOff(s, dir, ctx) {
+  const p = s.p, feetY = p.y + C.PH;
+  let top = footingNear(s, ctx, feetY);
+  if (top < 0) top = footingNear(s, ctx + dir, feetY);
+  if (top < 0 || rectSolid(s, p.x, top - C.PH, C.PW, C.PH)) return false;
+  p.y = top - C.PH; p.climb = false; p.grabCd = 8; p.ground = true; p.vy = 0; p.peakY = p.y;
+  return true;
 }
 
 function stepCrumble(s) {
@@ -348,8 +414,8 @@ function stepHazards(s) {
   for (let ty = y >> 8; ty <= (y + h - 1) >> 8; ty++) {
     for (let tx = x >> 8; tx <= (x + w - 1) >> 8; tx++) {
       const t = tileAt(s, tx, ty);
-      if (t === T.SPIKES && p.y + C.PH > ty * TILE + 128) return die(s, 'spikes');
-      if (t === T.FLAME && s.ward === 0 && flameOn(s)) return die(s, 'flame');
+      if (t === T.SPIKES && p.y + C.PH > ty * TILE + 128) return hurt(s, 'spikes', true);
+      if (t === T.FLAME && s.ward === 0 && flameOn(s)) return hurt(s, 'flame', false);
     }
   }
 }
@@ -396,7 +462,7 @@ function stepEnemies(s) {
         else { e.x = nx; e.y = ny; }
       }
     }
-    if (!frozen && !s.dead && !s.won && s.ward === 0 && overlap(p.x + 16, p.y + 16, C.PW - 32, C.PH - 32, e.x + 16, e.y + 16, w - 32, h - 32)) die(s, e.kind === 'ghoul' ? 'ghoul' : 'bat');
+    if (!frozen && !s.dead && !s.won && s.ward === 0 && overlap(p.x + 16, p.y + 16, C.PW - 32, C.PH - 32, e.x + 16, e.y + 16, w - 32, h - 32)) hurt(s, e.kind === 'ghoul' ? 'ghoul' : 'bat', false);
   }
 }
 

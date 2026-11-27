@@ -57,9 +57,9 @@
         <tr><th>Pause / restart</th><td>Esc / R</td><td>Pause button</td></tr>
       </table>
       <ul>
-        <li><b>Ladders and ropes:</b> hold Up to grab on. Jump to hop off, or press sideways to let go.</li>
+        <li><b>Ladders and ropes:</b> hold Up to grab on. You will not fall off by accident: jump to hop off, or step sideways onto a floor.</li>
         <li><b>Ledges:</b> wooden ledges can be jumped up through. Hold Down to drop through one.</li>
-        <li><b>Falls:</b> dropping more than about four tiles is fatal.</li>
+        <li><b>Hearts:</b> you have three. A creature, flame or very long fall costs one; pits and spikes cost one and put you back on the last safe ground. Nothing you collected is lost.</li>
         <li><b>Cracked stone</b> collapses shortly after you step on it.</li>
         <li><b>Flame jets</b> switch on and off in a steady rhythm.</li>
         <li><b>Portals:</b> stand inside and tap Up to step out of the matching portal.</li>
@@ -69,7 +69,7 @@
       <ul>
         <li><b class="c-bolt">Bolt</b> - three shots that destroy a creature.</li>
         <li><b class="c-frost">Frost</b> - freezes every creature for five seconds. Frozen creatures are harmless.</li>
-        <li><b class="c-feather">Feather</b> - six seconds of gentle falling. No fall is too far.</li>
+        <li><b class="c-feather">Feather</b> - six seconds of gentle falling. No fall can hurt you.</li>
         <li><b class="c-ward">Ward</b> - four seconds of protection from creatures and fire.</li>
       </ul>
       <p>A gamepad works too. Stuck? Pause and choose <b>Watch solution</b>.</p>
@@ -80,15 +80,15 @@
     <header id="hud" class="bar">
       <button id="btnPause" class="btn small" aria-label="Pause">II</button>
       <span id="hudName" class="grow"></span>
+      <span id="hudHp" title="Hearts"></span>
       <span id="hudGems" title="Gems"></span>
       <span id="hudKey" title="Key"></span>
       <span id="hudSpell" title="Spell"></span>
-      <span id="hudTime" title="Time left"></span>
+      <span id="hudTime" title="Time"></span>
     </header>
     <header id="editbar" class="bar">
       <button id="edBack" class="btn small">Done</button>
       <input id="edName" maxlength="40" aria-label="Level name" class="grow">
-      <label>Time <input id="edTime" type="number" min="10" max="600" step="10" aria-label="Time limit in seconds"></label>
       <select id="edTheme" aria-label="Theme"></select>
     </header>
     <div id="stage"><canvas id="view"></canvas><div id="banner" hidden></div></div>
