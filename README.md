@@ -23,7 +23,7 @@ Or host the repository root on any static host. For GitHub Pages choose
 | Cast spell | X, Shift, Enter | Spell |
 | Pause / restart | Esc / R | Pause button |
 
-Gamepads work too. Take the key, reach the door; gems are optional. Ten
+Gamepads work too (d-pad or stick to move, A to jump, X to cast, Start to pause; they also drive the menus). Take the key, reach the door; gems are optional. Ten
 chambers are built in, and the **level editor** lets you paint your own, have
 the solver prove they can be won, and share them as a link.
 

@@ -79,7 +79,13 @@ test('phone: touch controls appear and drive the game in both orientations', asy
       assert.ok(box && box.x >= 0 && box.y >= 0 && box.x + box.width <= viewport.width + 1 && box.y + box.height <= viewport.height + 1, `${id} is fully on screen at ${viewport.width}x${viewport.height}`);
     }
     const canvas = await page.locator('#view').boundingBox();
-    assert.ok(canvas.width >= Math.min(viewport.width, viewport.height * 1.6) * 0.6, 'the playfield uses the available space');
+    if (viewport.height > viewport.width) {
+      assert.ok(canvas.width >= viewport.width - 2, 'portrait: the playfield spans the full width');
+      assert.ok(canvas.height >= viewport.height * 0.5, `portrait: the playfield is zoomed to use the height (${canvas.height}px)`);
+      assert.ok(canvas.height / 15 >= 28, 'portrait: tiles are large enough to see');
+    } else {
+      assert.ok(canvas.height >= viewport.height - 2, 'landscape: the playfield uses the full height');
+    }
     const a = await player(page);
     const pad = await page.locator('#pad').boundingBox();
     const client = await ctx.newCDPSession(page);
@@ -98,6 +104,57 @@ test('phone: touch controls appear and drive the game in both orientations', asy
     assert.deepEqual(errors, []);
     await ctx.close();
   }
+});
+
+test('gamepad: standard and non-standard pads play the game, navigate menus and hide touch controls', async () => {
+  const { ctx, page, errors } = await open({ viewport: { width: 844, height: 390 }, hasTouch: true, isMobile: true });
+  // A fake pad we can drive from the test.
+  await page.evaluate(() => {
+    const pad = { connected: true, mapping: 'standard', axes: [0, 0, 0, 0], buttons: Array.from({ length: 17 }, () => ({ pressed: false, value: 0 })) };
+    window.__pad = pad;
+    window.__press = (i, on = true) => { pad.buttons[i] = { pressed: on, value: on ? 1 : 0 }; };
+    navigator.getGamepads = () => [pad];
+  });
+  const frames = (n = 4) => page.evaluate((n) => new Promise((ok) => { const f = () => (n-- ? requestAnimationFrame(f) : ok()); f(); }), n);
+  const tap = async (i) => { await page.evaluate((i) => window.__press(i), i); await frames(); await page.evaluate((i) => window.__press(i, false), i); await frames(); };
+  // Menus: A focuses, d-pad moves, A activates, B goes back.
+  await tap(0);
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'btnPlay');
+  await tap(13); assert.equal(await page.evaluate(() => document.activeElement.id), 'btnEditor');
+  await tap(12); await tap(0);
+  assert.equal(await page.evaluate(() => document.getElementById('app').dataset.screen), 'levels');
+  await tap(1);
+  assert.equal(await page.evaluate(() => document.getElementById('app').dataset.screen), 'menu', 'B goes back');
+  await tap(0); await tap(0); await tap(13); await tap(0);       // Play -> first chamber
+  await page.waitForFunction(() => window.__runekeep.run.state?.p.ground);
+  assert.equal(await page.locator('#touch').isVisible(), false, 'touch controls step aside for the gamepad');
+  const canvas = await page.locator('#view').boundingBox();
+  assert.ok(canvas.height >= 388, 'the playfield fills the screen');
+  const a = await player(page);
+  await page.evaluate(() => window.__press(15)); await page.waitForTimeout(300); await page.evaluate(() => window.__press(15, false));
+  const b = await player(page);
+  assert.ok(b.x > a.x + 100, 'd-pad right walks');
+  await page.evaluate(() => { window.__pad.axes[0] = -1; }); await page.waitForTimeout(300); await page.evaluate(() => { window.__pad.axes[0] = 0; });
+  const c = await player(page);
+  assert.ok(c.x < b.x - 100, 'left stick walks');
+  await page.evaluate(() => window.__press(0)); await page.waitForTimeout(150);
+  assert.ok((await player(page)).y < c.y, 'A jumps'); await page.evaluate(() => window.__press(0, false));
+  await tap(9);
+  assert.equal(await page.locator('#dlgTitle').textContent(), 'Paused', 'Start pauses');
+  await tap(9);
+  assert.equal(await page.locator('#dialog').isHidden(), true, 'Start resumes');
+  // A pad that reports its d-pad as a hat axis instead of buttons.
+  await page.evaluate(() => { const p = window.__pad; p.mapping = ''; p.axes = [0, 0, 0, 0, 0, 0, 0, 0, 0, 1.2857]; });
+  await page.waitForTimeout(100);
+  const d = await player(page);
+  await page.evaluate(() => { window.__pad.axes[9] = -0.4286; }); await page.waitForTimeout(300); await page.evaluate(() => { window.__pad.axes[9] = 1.2857; });
+  assert.ok((await player(page)).x > d.x + 100, 'hat-axis d-pad walks right');
+  // Touching the screen brings the on-screen controls back.
+  const box = await page.locator('#view').boundingBox();
+  await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+  assert.equal(await page.locator('#touch').isVisible(), true);
+  assert.deepEqual(errors, []);
+  await ctx.close();
 });
 
 test('editor: paint, validate, verify with the solver, test-play, share and re-import', async () => {

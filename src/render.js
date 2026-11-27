@@ -3,6 +3,7 @@ import { W, H, T, C, tileAt, flameOn } from './sim.js';
 import { sprites, buildStatic, SPELL_COLORS, PORTAL_COLORS, PAL } from './sprites.js';
 
 export const VIEW_W = W * 16, VIEW_H = H * 16;
+const MIN_VISIBLE_TILES = 12;
 
 export class Renderer {
   constructor(canvas) {
@@ -12,21 +13,35 @@ export class Renderer {
     this.level = null; this.staticLayer = null;
     this.particles = [];
     this.shake = 0; this.flash = 0; this.time = 0;
+    this.viewW = VIEW_W; this.follow = false; this.camX = null;
   }
-  /** Fits the canvas to its parent using the largest crisp scale available. */
+  /**
+   * Fits the canvas to its parent. On narrow (portrait) screens in follow mode the
+   * view zooms in to the full level height and scrolls sideways with the wizard,
+   * so tiles stay big enough to see instead of shrinking the whole room to fit.
+   */
   resize() {
     const parent = this.canvas.parentElement;
     const availW = parent.clientWidth, availH = parent.clientHeight;
     if (!availW || !availH) return;
     const dpr = Math.min(window.devicePixelRatio || 1, 3);
-    const css = Math.min(availW / VIEW_W, availH / VIEW_H);
-    const fine = css * dpr;
-    this.scale = fine >= 2 ? Math.floor(fine) : Math.max(1, fine);
-    const cssScale = css >= 1 ? this.scale / dpr : css;
-    this.canvas.width = Math.round(VIEW_W * this.scale); this.canvas.height = Math.round(VIEW_H * this.scale);
-    this.canvas.style.width = `${VIEW_W * cssScale}px`; this.canvas.style.height = `${VIEW_H * cssScale}px`;
+    let css = Math.min(availW / VIEW_W, availH / VIEW_H);
+    if (this.follow) {
+      const zoomed = Math.min(availH / VIEW_H, availW / (MIN_VISIBLE_TILES * 16));
+      if (zoomed > css * 1.2) css = zoomed;
+    }
+    // Whole-number scaling keeps pixels perfectly even on low-density displays;
+    // dense phone screens hide the difference, so there we use every pixel.
+    let fine = css * dpr;
+    if (dpr < 2 && fine >= 2) fine = Math.floor(fine);
+    css = fine / dpr;
+    this.viewW = Math.min(VIEW_W, Math.floor(availW / css));
+    this.scale = fine;
+    this.canvas.width = Math.round(this.viewW * fine); this.canvas.height = Math.round(VIEW_H * fine);
+    this.canvas.style.width = `${this.viewW * css}px`; this.canvas.style.height = `${VIEW_H * css}px`;
+    this.camX = null;
   }
-  setLevel(level) { this.level = level; this.staticLayer = buildStatic(level); this.particles.length = 0; this.shake = 0; this.flash = 0; }
+  setLevel(level) { this.level = level; this.staticLayer = buildStatic(level); this.particles.length = 0; this.shake = 0; this.flash = 0; this.camX = null; }
 
   burst(x, y, color, n, speed = 1.4, life = 30, gravity = 0.06) {
     for (let i = 0; i < n; i++) {
@@ -65,6 +80,15 @@ export class Renderer {
     g.setTransform(this.scale, 0, 0, this.scale, 0, 0);
     g.imageSmoothingEnabled = false;
     if (this.shake > 0) { g.translate((Math.random() - 0.5) * this.shake * 0.5, (Math.random() - 0.5) * this.shake * 0.5); this.shake--; }
+    // Camera: only scrolls when the view is narrower than the room.
+    const vw = this.viewW;
+    let cam = 0;
+    if (vw < VIEW_W) {
+      const target = Math.max(0, Math.min(VIEW_W - vw, s.p.x / 16 + 5 - vw / 2));
+      this.camX = this.camX == null ? target : this.camX + (target - this.camX) * 0.14;
+      cam = Math.round(this.camX * this.scale) / this.scale;
+    }
+    g.translate(-cam, 0);
     g.drawImage(this.staticLayer, 0, 0);
     const lights = [];
 
@@ -150,11 +174,13 @@ export class Renderer {
     g.globalCompositeOperation = 'lighter';
     for (const [x, y, r, c, a] of lights) this.glow(x, y, r, c, a ?? 1);
     g.globalCompositeOperation = 'source-over';
-    if (frozen) { g.fillStyle = `rgba(117,206,200,${thaw ? 0.05 : 0.12})`; g.fillRect(0, 0, VIEW_W, VIEW_H); }
-    const v = g.createRadialGradient(VIEW_W / 2, VIEW_H / 2, VIEW_H * 0.45, VIEW_W / 2, VIEW_H / 2, VIEW_W * 0.72);
+    g.setTransform(this.scale, 0, 0, this.scale, 0, 0);     // screen space from here on
+    if (frozen) { g.fillStyle = `rgba(117,206,200,${thaw ? 0.05 : 0.12})`; g.fillRect(0, 0, vw, VIEW_H); }
+    const vr = Math.max(vw, VIEW_H);
+    const v = g.createRadialGradient(vw / 2, VIEW_H / 2, vr * 0.3, vw / 2, VIEW_H / 2, vr * 0.75);
     v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,0.5)');
-    g.fillStyle = v; g.fillRect(-8, -8, VIEW_W + 16, VIEW_H + 16);
-    if (this.flash > 0) { g.fillStyle = `rgba(255,255,255,${this.flash * 0.03})`; g.fillRect(0, 0, VIEW_W, VIEW_H); this.flash--; }
+    g.fillStyle = v; g.fillRect(0, 0, vw, VIEW_H);
+    if (this.flash > 0) { g.fillStyle = `rgba(255,255,255,${this.flash * 0.03})`; g.fillRect(0, 0, vw, VIEW_H); this.flash--; }
 
     if (opts.grid) {
       g.fillStyle = 'rgba(255,255,255,0.10)';

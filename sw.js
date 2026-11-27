@@ -2,7 +2,7 @@
 // requests are then served cache-first and refreshed in the background, so the
 // app works with no network and still picks up new versions on the next visit.
 // tests/pwa.test.js fails if a shipped file is missing from this list.
-const CACHE = 'runekeep-v1';
+const CACHE = 'runekeep-v2';
 const ASSETS = [
   './',
   'index.html',

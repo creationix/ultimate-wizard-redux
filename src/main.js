@@ -1,5 +1,5 @@
 // App shell: screens, the 60 Hz game loop, HUD, dialogs, PWA plumbing.
-import { parseLevel, createState, step, validateLevel, decodeInputs, SPELLS } from './sim.js';
+import { parseLevel, createState, step, validateLevel, decodeInputs, SPELLS, IN } from './sim.js';
 import { LEVELS } from './levels.js';
 import { SOLUTIONS } from './solutions.js';
 import { Renderer } from './render.js';
@@ -24,17 +24,20 @@ function go(screen) {
   app.dataset.screen = screen;
   input.clear();
   if (screen === 'levels') buildLevelSelect();
-  if (screen === 'game') requestAnimationFrame(() => renderer.resize());
+  if (screen === 'game') { renderer.follow = gameEl.dataset.mode === 'play'; renderer.resize(); requestAnimationFrame(() => renderer.resize()); }
 }
 document.querySelectorAll('[data-go]').forEach((b) => b.addEventListener('click', () => go(b.dataset.go)));
 
 function applyTouch() {
   const mode = store.settings.touch;
-  const on = mode === 'on' || (mode === 'auto' && (matchMedia('(pointer: coarse)').matches || input.usedTouch));
+  // In auto mode the on-screen controls step aside while a gamepad is being used.
+  const on = mode === 'on' || (mode === 'auto' && (matchMedia('(pointer: coarse)').matches || input.usedTouch) && !input.padActive);
   app.classList.toggle('touch', on);
+  app.classList.toggle('padnav', input.padActive);
+  renderer.follow = gameEl.dataset.mode === 'play';
   renderer.resize();
 }
-addEventListener('pointerdown', (e) => { unlockAudio(); if (e.pointerType === 'touch' && !app.classList.contains('touch') && store.settings.touch === 'auto') { input.usedTouch = true; applyTouch(); } }, true);
+addEventListener('pointerdown', (e) => { unlockAudio(); if (e.pointerType === 'touch' && !app.classList.contains('touch') && store.settings.touch === 'auto') { input.usedTouch = true; input.padActive = false; applyTouch(); } }, true);
 addEventListener('keydown', unlockAudio, true);
 addEventListener('resize', () => renderer.resize());
 addEventListener('orientationchange', () => setTimeout(() => renderer.resize(), 200));
@@ -245,11 +248,52 @@ $('edShare').addEventListener('click', async () => {
     navigator.share ? [['Share…', () => navigator.share({ title: editor.def.name, url }).catch(() => {})], ['Done']] : [['Done']]);
 });
 
+// ---- gamepad ---------------------------------------------------------------
+// In play the pad feeds the simulation; everywhere else it drives the UI:
+// d-pad / stick moves focus, A activates, B goes back, Start pauses and resumes.
+let padPrev = { mask: 0, start: false, back: false }, padSeen = false, padRepeat = 0;
+function focusables() {
+  const root = !$('dialog').hidden ? $('dialog') : $(app.dataset.screen);
+  const all = [...root.querySelectorAll('button:not([disabled]), select')].filter((el) => el.offsetParent !== null && !el.closest('#touch'));
+  // Back buttons go last so the first thing the pad lands on is the main action.
+  return [...all.filter((el) => !el.dataset.go), ...all.filter((el) => el.dataset.go)];
+}
+function padUi(pad) {
+  if (pad.any && !padSeen) { padSeen = true; applyTouch(); if (app.dataset.screen === 'game') banner('<b>Gamepad connected</b>', 1500); }
+  const playing = app.dataset.screen === 'game' && gameEl.dataset.mode === 'play' && $('dialog').hidden;
+  const hit = (m) => (pad.mask & m) && !(padPrev.mask & m);
+  if (pad.start && !padPrev.start) {
+    if (playing) pause();
+    else if (!$('dialog').hidden && $('dlgTitle').textContent === 'Paused') { closeDialog(); run.paused = false; }
+  }
+  if (!playing && !(app.dataset.screen === 'game' && gameEl.dataset.mode === 'edit' && $('dialog').hidden)) {
+    // Held directions auto-repeat so long lists are quick to cross.
+    const dirMask = pad.mask & (IN.L | IN.R | IN.U | IN.D);
+    padRepeat = dirMask && dirMask === (padPrev.mask & (IN.L | IN.R | IN.U | IN.D)) ? padRepeat + 1 : 0;
+    const move = (m) => hit(m) || ((pad.mask & m) && padRepeat > 24 && padRepeat % 6 === 0);
+    const step = (move(IN.D) || move(IN.R) ? 1 : 0) - (move(IN.U) || move(IN.L) ? 1 : 0);
+    const list = focusables(), at = list.indexOf(document.activeElement);
+    if (step && list.length) {
+      const el = list[at < 0 ? 0 : (at + step + list.length) % list.length];
+      el.focus(); el.scrollIntoView({ block: 'nearest' });
+    }
+    if (hit(IN.JUMP)) { if (at >= 0) list[at].click(); else list[0]?.focus(); }
+    if (pad.back && !padPrev.back) {
+      if (!$('dialog').hidden) { if ($('dlgTitle').textContent === 'Paused') { closeDialog(); run.paused = false; } }
+      else $(app.dataset.screen).querySelector('[data-go]')?.click();
+    }
+  }
+  padPrev = pad;
+}
+addEventListener('gamepadconnected', () => { input.padActive = true; padSeen = true; applyTouch(); if (app.dataset.screen === 'game') banner('<b>Gamepad connected</b>', 1500); });
+addEventListener('gamepaddisconnected', () => { input.padActive = false; padSeen = false; applyTouch(); });
+
 // ---- main loop -------------------------------------------------------------
 let last = 0, acc = 0;
 function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min(0.1, (now - last) / 1000); last = now;
+  padUi(input.pollPad());
   if (app.dataset.screen !== 'game') return;
   if (gameEl.dataset.mode === 'edit') { editor.draw(); return; }
   if (!run.state) return;

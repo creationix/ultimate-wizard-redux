@@ -9,6 +9,7 @@ const KEYS = {
 export class Input {
   constructor({ pad, jump, cast }) {
     this.keys = 0; this.touchDir = 0; this.touchBtn = 0; this.usedTouch = false;
+    this.padMask = 0; this.padActive = false;
     this.enabled = true;
     addEventListener('keydown', (e) => {
       if (!this.enabled || e.target.matches?.('input, textarea, select')) return;
@@ -39,22 +40,47 @@ export class Input {
       el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
     }
   }
-  gamepad() {
-    let m = 0;
+  /**
+   * Reads every connected gamepad once per frame. Understands the standard
+   * layout and the common non-standard ones phones report (d-pad on a hat
+   * axis or on axes 6/7), so most Bluetooth and USB pads work unconfigured.
+   * Returns { mask, start, back, any }.
+   */
+  pollPad() {
+    let mask = 0, start = false, back = false;
     const pads = navigator.getGamepads ? navigator.getGamepads() : [];
     for (const gp of pads) {
-      if (!gp) continue;
-      const b = (i) => gp.buttons[i]?.pressed;
-      if (gp.axes[0] < -0.4 || b(14)) m |= IN.L;
-      if (gp.axes[0] > 0.4 || b(15)) m |= IN.R;
-      if (gp.axes[1] < -0.5 || b(12)) m |= IN.U;
-      if (gp.axes[1] > 0.5 || b(13)) m |= IN.D;
-      if (b(0)) m |= IN.JUMP;
-      if (b(1) || b(2)) m |= IN.CAST;
+      if (!gp || gp.connected === false) continue;
+      const b = (i) => { const x = gp.buttons[i]; return !!x && (x.pressed || x.value > 0.5); };
+      const ax = (i) => gp.axes[i] || 0;
+      if (ax(0) < -0.4) mask |= IN.L; if (ax(0) > 0.4) mask |= IN.R;
+      if (ax(1) < -0.55) mask |= IN.U; if (ax(1) > 0.55) mask |= IN.D;
+      if (gp.mapping === 'standard') {
+        if (b(14)) mask |= IN.L; if (b(15)) mask |= IN.R; if (b(12)) mask |= IN.U; if (b(13)) mask |= IN.D;
+      } else {
+        // D-pad as a pair of axes...
+        const n = gp.axes.length;
+        if (n >= 8) { if (ax(6) < -0.5) mask |= IN.L; if (ax(6) > 0.5) mask |= IN.R; if (ax(7) < -0.5) mask |= IN.U; if (ax(7) > 0.5) mask |= IN.D; }
+        // ...or as a single 8-way "hat" axis (-1 = up, stepping clockwise by 2/7; idle is outside -1..1).
+        if (n === 10 && ax(9) >= -1.01 && ax(9) <= 1.01) {
+          const dir = Math.round((ax(9) + 1) * 3.5);
+          if (dir === 7 || dir <= 1) mask |= IN.U; if (dir >= 1 && dir <= 3) mask |= IN.R;
+          if (dir >= 3 && dir <= 5) mask |= IN.D; if (dir >= 5 && dir <= 7) mask |= IN.L;
+        }
+        if (b(12) && gp.buttons.length > 15) mask |= IN.U; if (b(13) && gp.buttons.length > 15) mask |= IN.D;
+        if (b(14) && gp.buttons.length > 15) mask |= IN.L; if (b(15) && gp.buttons.length > 15) mask |= IN.R;
+      }
+      if (b(0)) mask |= IN.JUMP;                 // A / Cross
+      if (b(2) || b(3) || b(5) || b(7)) mask |= IN.CAST;   // X, Y, right shoulder, right trigger
+      if (b(1)) back = true;                     // B / Circle
+      if (b(9)) start = true;                    // Start / Menu
     }
-    return m;
+    const any = mask !== 0 || start || back;
+    if (any) this.padActive = true;
+    this.padMask = mask;
+    return { mask, start, back, any };
   }
   /** Current input bitmask. */
-  read() { return this.enabled ? (this.keys | this.touchDir | this.touchBtn | this.gamepad()) : 0; }
+  read() { return this.enabled ? (this.keys | this.touchDir | this.touchBtn | this.padMask) : 0; }
   clear() { this.keys = 0; this.touchDir = 0; this.touchBtn = 0; }
 }
