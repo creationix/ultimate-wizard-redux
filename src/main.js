@@ -308,6 +308,21 @@ function frame(now) {
 }
 requestAnimationFrame(frame);
 
+// Some Android browsers zoom on double-tap even when the page asks them not to
+// (for example with "force enable zoom" switched on). Swallow the second tap of
+// a quick pair, and pinch gestures, so mashing Jump can never zoom the page.
+let lastTouchEnd = 0;
+document.addEventListener('touchend', (e) => {
+  const now = Date.now();
+  // Only where taps are handled by pointer events (playfield and touch controls);
+  // menu buttons rely on the click that follows a tap, so they are left alone.
+  if (now - lastTouchEnd < 400 && e.target.closest?.('#stage, #touch')) e.preventDefault();
+  lastTouchEnd = now;
+}, { passive: false });
+document.addEventListener('touchmove', (e) => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
+document.addEventListener('dblclick', (e) => e.preventDefault());
+for (const type of ['gesturestart', 'gesturechange']) document.addEventListener(type, (e) => e.preventDefault());
+
 // ---- boot ------------------------------------------------------------------
 (function menuArt() {
   const g = $('menuArt').getContext('2d'), S = sprites();

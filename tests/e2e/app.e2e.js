@@ -100,6 +100,13 @@ test('phone: touch controls appear and drive the game in both orientations', asy
     await page.waitForTimeout(150);
     assert.ok((await player(page)).y < b.y, 'the jump button jumps');
     await touch('touchEnd');
+    // Rapid double taps (mashing Jump, tapping the playfield) must never zoom the page.
+    for (const [x, y] of [[jump.x + jump.width / 2, jump.y + jump.height / 2], [canvas.x + canvas.width / 2, canvas.y + canvas.height / 2]]) {
+      for (let i = 0; i < 2; i++) { await touch('touchStart', x, y); await touch('touchEnd'); }
+    }
+    await page.waitForTimeout(400);
+    assert.equal(await page.evaluate(() => window.visualViewport.scale), 1, 'double-tap does not zoom');
+    assert.equal(await page.evaluate(() => getComputedStyle(document.getElementById('view')).touchAction), 'none');
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth && document.documentElement.scrollHeight <= innerHeight), true, 'no page scrolling');
     assert.deepEqual(errors, []);
     await ctx.close();

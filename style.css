@@ -5,7 +5,12 @@
 }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html, body { margin: 0; height: 100%; background: #05061a; color: var(--ink); font: 15px/1.45 var(--font); overscroll-behavior: none; }
-body { -webkit-user-select: none; user-select: none; touch-action: manipulation; }
+html, body { touch-action: manipulation; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+body { -webkit-user-select: none; user-select: none; }
+/* No browser gestures at all on the game itself: no double-tap zoom, pinch or pull-to-refresh. */
+#game, #game *, #menu, #dialog { touch-action: none; }
+#game #palette, #game #editor, .panel { touch-action: pan-x pan-y; }
+.scroll { touch-action: pan-y; }
 #app { position: fixed; inset: 0; padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
   background: radial-gradient(120% 90% at 50% 0%, var(--bg2), var(--bg) 60%, #05061a); }
 .screen { display: none; position: absolute; inset: 0; padding: inherit; flex-direction: column; }
