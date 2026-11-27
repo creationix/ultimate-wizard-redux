@@ -13,8 +13,8 @@ that runs on phones and desktops and installs as an offline app.
 npm start          # serves the folder at http://127.0.0.1:8080
 ```
 
-Or host the repository root on any static host. A GitHub Pages workflow is
-included (**Settings → Pages → Source: GitHub Actions**, deploys on push to `main`), or simply choose **Deploy from a branch** with the `/ (root)` folder.
+Or host the repository root on any static host. For GitHub Pages choose
+**Settings → Pages → Deploy from a branch** with the `/ (root)` folder; there is nothing to build.
 
 | | Keyboard | Touch |
 |---|---|---|
