@@ -1,0 +1,19 @@
+name: CI
+on:
+  push:
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Physics, level winnability and PWA tests
+        run: npm test
+      - name: Browser tests
+        run: |
+          npm install --no-save playwright
+          npx playwright install --with-deps chromium
+          npm run test:e2e
